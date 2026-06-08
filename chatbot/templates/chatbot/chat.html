@@ -1,0 +1,385 @@
+{% extends 'chatbot/base.html' %}
+
+{% block title %}Chat Dashboard | SupportHub{% endblock %}
+
+{% block content %}
+<div class="flex-1 flex overflow-hidden relative">
+    
+    <!-- Mobile Sidebar Backdrop -->
+    <div id="sidebar-backdrop" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-20 hidden lg:hidden"></div>
+
+    <!-- Conversations Sidebar -->
+    <aside id="chat-sidebar" class="fixed inset-y-16 left-0 z-30 w-72 bg-white dark:bg-slate-900 border-r border-slate-200/50 dark:border-slate-800/50 transform -translate-x-full lg:translate-x-0 lg:static flex flex-col transition-transform duration-300 ease-in-out">
+        <!-- New Chat Button -->
+        <div class="p-4 border-b border-slate-200/50 dark:border-slate-800/50">
+            <a href="{% url 'chatbot:create_session' %}" class="flex items-center justify-center space-x-2 w-full px-4 py-3 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white rounded-xl font-medium shadow-md shadow-brand-500/10 hover:shadow-brand-500/20 active:scale-95 transition-all duration-200">
+                <i data-lucide="plus" class="w-5 h-5"></i>
+                <span>New Conversation</span>
+            </a>
+        </div>
+
+        <!-- Previous Chats List -->
+        <div class="flex-1 overflow-y-auto chat-scrollbar p-3 space-y-1">
+            <h3 class="px-3 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">Previous Chats</h3>
+            
+            {% if sessions %}
+                {% for session in sessions %}
+                <div class="group flex items-center justify-between rounded-xl transition-all duration-200 {% if active_session and active_session.id == session.id %} bg-brand-50 dark:bg-brand-950/30 text-brand-700 dark:text-brand-300 font-medium {% else %} hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-400 {% endif %}">
+                    <a href="{% url 'chatbot:chat_session_detail' session_id=session.id %}" class="flex items-center space-x-3 flex-1 px-3 py-3 overflow-hidden">
+                        <i data-lucide="message-square" class="w-4 h-4 flex-shrink-0 opacity-70"></i>
+                        <span class="truncate text-sm session-title-text">{{ session.title }}</span>
+                    </a>
+                    
+                    <!-- Delete button -->
+                    <form action="{% url 'chatbot:delete_session' session_id=session.id %}" method="POST" class="inline opacity-0 group-hover:opacity-100 focus-within:opacity-100 pr-2 transition-opacity duration-200">
+                        {% csrf_token %}
+                        <button type="submit" onclick="return confirm('Are you sure you want to delete this conversation?')" class="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-red-500 transition-colors" title="Delete conversation">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    </form>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="px-3 py-4 text-center text-sm text-slate-400 dark:text-slate-500">
+                    No active conversations.
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- User Profile Footer in Sidebar -->
+        <div class="p-4 border-t border-slate-200/50 dark:border-slate-800/50 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
+            <div class="flex items-center space-x-3 overflow-hidden">
+                <div class="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center text-indigo-700 dark:text-indigo-300 font-semibold text-sm flex-shrink-0">
+                    {{ user.username|slice:":1"|upper }}
+                </div>
+                <div class="overflow-hidden">
+                    <div class="text-sm font-semibold truncate">{{ user.username }}</div>
+                    <div class="text-xs text-slate-400 dark:text-slate-500 truncate">{{ user.email }}</div>
+                </div>
+            </div>
+            <a href="{% url 'chatbot:logout' %}" class="p-2 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors" title="Logout">
+                <i data-lucide="log-out" class="w-5 h-5"></i>
+            </a>
+        </div>
+    </aside>
+
+    <!-- Sidebar toggle control (Floating on mobile) -->
+    <button id="sidebar-toggle" class="lg:hidden fixed bottom-4 right-4 z-40 p-3.5 bg-brand-600 text-white rounded-full shadow-xl hover:bg-brand-700 transition-transform active:scale-95 duration-200">
+        <i data-lucide="menu" id="toggle-icon-open" class="w-6 h-6"></i>
+        <i data-lucide="x" id="toggle-icon-close" class="w-6 h-6 hidden"></i>
+    </button>
+
+    <!-- Chat Workspace Area -->
+    <div class="flex-1 flex flex-col overflow-hidden bg-slate-50 dark:bg-slate-950">
+        {% if active_session %}
+            <!-- Chat Head info -->
+            <div class="h-14 px-6 border-b border-slate-200/50 dark:border-slate-800/50 flex items-center justify-between bg-white/50 dark:bg-slate-900/50 backdrop-blur-md">
+                <div class="flex items-center space-x-3">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                    <h2 id="active-session-title" class="font-heading font-semibold text-base text-slate-800 dark:text-slate-100 truncate max-w-md">{{ active_session.title }}</h2>
+                </div>
+                <div class="text-xs text-slate-400 dark:text-slate-500 hidden sm:block">
+                    Session created: {{ active_session.created_at|date:"M d, Y H:i" }}
+                </div>
+            </div>
+
+            <!-- Messages Stream -->
+            <div id="messages-container" class="flex-1 overflow-y-auto chat-scrollbar p-6 space-y-6">
+                {% for message in chat_messages %}
+                    {% if message.sender == 'user' %}
+                    <!-- User Message Bubble -->
+                    <div class="flex items-end justify-end space-x-3 max-w-3xl ml-auto">
+                        <div class="flex flex-col space-y-1 items-end">
+                            <div class="bg-gradient-to-r from-brand-600 to-indigo-600 text-white px-4 py-3 rounded-2xl rounded-br-none shadow-md shadow-brand-500/5 text-sm leading-relaxed max-w-lg break-words">
+                                {{ message.content|linebreaksbr }}
+                            </div>
+                            <span class="text-[10px] text-slate-400 dark:text-slate-500 px-1">{{ message.timestamp|date:"h:i A" }}</span>
+                        </div>
+                        <div class="w-8 h-8 rounded-xl bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 font-semibold text-xs flex-shrink-0 shadow-sm mb-5">
+                            {{ user.username|slice:":1"|upper }}
+                        </div>
+                    </div>
+                    {% else %}
+                    <!-- AI Assistant Bubble -->
+                    <div class="flex items-start space-x-3 max-w-3xl mr-auto">
+                        <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center shadow-md shadow-brand-500/10 flex-shrink-0">
+                            <i data-lucide="bot" class="text-white w-4.5 h-4.5"></i>
+                        </div>
+                        <div class="flex flex-col space-y-1">
+                            <div class="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 text-slate-800 dark:text-slate-100 px-5 py-4 rounded-2xl rounded-bl-none shadow-sm text-sm leading-relaxed max-w-lg break-words markdown-content">
+                                {{ message.content }}
+                            </div>
+                            <span class="text-[10px] text-slate-400 dark:text-slate-500 px-1">{{ message.timestamp|date:"h:i A" }}</span>
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+
+                <!-- Typing indicator -->
+                <div id="typing-indicator" class="flex items-start space-x-3 max-w-3xl mr-auto hidden">
+                    <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center shadow-md shadow-brand-500/10 flex-shrink-0">
+                        <i data-lucide="bot" class="text-white w-4.5 h-4.5"></i>
+                    </div>
+                    <div class="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 px-5 py-4 rounded-2xl rounded-bl-none shadow-sm max-w-xs flex items-center space-x-2">
+                        <span class="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce" style="animation-delay: 0.1s"></span>
+                        <span class="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce" style="animation-delay: 0.2s"></span>
+                        <span class="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500 animate-bounce" style="animation-delay: 0.3s"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Controls Panel -->
+            <div class="p-4 border-t border-slate-200/50 dark:border-slate-800/50 bg-white dark:bg-slate-900 transition-colors duration-300">
+                <form id="chat-form" method="POST" class="max-w-4xl mx-auto relative flex items-end space-x-3">
+                    {% csrf_token %}
+                    <!-- Text Area Input -->
+                    <div class="flex-1 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/80 rounded-2xl px-4 py-3 focus-within:ring-2 focus-within:ring-brand-500 focus-within:border-brand-500 transition-all duration-200">
+                        <textarea id="chat-message-input" name="message" rows="1" placeholder="Type your support query here..." class="w-full bg-transparent border-0 focus:ring-0 outline-none text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 resize-none max-h-36 chat-scrollbar"></textarea>
+                    </div>
+
+                    <!-- Send Button -->
+                    <button type="submit" id="send-button" class="p-3.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white rounded-2xl font-medium shadow-md shadow-brand-500/10 hover:shadow-brand-500/20 hover:scale-105 active:scale-95 transition-all duration-200 flex-shrink-0 flex items-center justify-center">
+                        <i data-lucide="send" class="w-5 h-5"></i>
+                    </button>
+                </form>
+                
+                <!-- Quick suggestions helper -->
+                <div class="max-w-4xl mx-auto flex flex-wrap gap-2 mt-3 justify-center">
+                    <button onclick="fillSuggestion('How do I update my user profile?')" class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-700/50 transition-colors">
+                        Update profile
+                    </button>
+                    <button onclick="fillSuggestion('Explain the security of my personal data.')" class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-700/50 transition-colors">
+                        Data security
+                    </button>
+                    <button onclick="fillSuggestion('Can you write code snippets using Django?')" class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-700/50 transition-colors">
+                        Django help
+                    </button>
+                </div>
+            </div>
+        {% else %}
+            <!-- Chat Empty State -->
+            <div class="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                <div class="relative mb-6">
+                    <div class="absolute inset-0 w-20 h-20 bg-brand-500/20 dark:bg-brand-500/10 rounded-3xl blur-xl animate-pulse"></div>
+                    <div class="relative w-20 h-20 rounded-3xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-brand-500/20">
+                        <i data-lucide="bot" class="text-white w-10 h-10"></i>
+                    </div>
+                </div>
+                <h1 class="font-heading font-extrabold text-2xl sm:text-3xl text-slate-900 dark:text-white mb-3">Support Assistant</h1>
+                <p class="text-sm sm:text-base text-slate-500 dark:text-slate-400 max-w-md mb-8">
+                    Welcome to our customer service chatbot. Get instant answers to account queries, billing requests, and technical assistance.
+                </p>
+                <a href="{% url 'chatbot:create_session' %}" class="flex items-center space-x-2 px-6 py-3.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white rounded-2xl font-semibold shadow-lg shadow-brand-500/20 active:scale-95 transition-all duration-200">
+                    <i data-lucide="message-square-plus" class="w-5 h-5"></i>
+                    <span>Start New Conversation</span>
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- Marked.js CDN for client-side Markdown rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+    // Setup marked options for safe parsing
+    marked.setOptions({
+        breaks: true,
+        sanitize: true, // Prevents XSS script execution
+    });
+
+    // Render all initial AI messages from markdown to HTML
+    document.addEventListener("DOMContentLoaded", function() {
+        document.querySelectorAll('.markdown-content').forEach(element => {
+            const rawContent = element.textContent.trim();
+            element.innerHTML = marked.parse(rawContent);
+        });
+        scrollToBottom();
+    });
+
+    // Mobile Sidebar UI Controls
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    const sidebar = document.getElementById('chat-sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    const openIcon = document.getElementById('toggle-icon-open');
+    const closeIcon = document.getElementById('toggle-icon-close');
+
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', toggleSidebar);
+        backdrop.addEventListener('click', toggleSidebar);
+    }
+
+    function toggleSidebar() {
+        sidebar.classList.toggle('-translate-x-full');
+        backdrop.classList.toggle('hidden');
+        openIcon.classList.toggle('hidden');
+        closeIcon.classList.toggle('hidden');
+    }
+
+    // Input Textarea Autogrow
+    const messageInput = document.getElementById('chat-message-input');
+    if (messageInput) {
+        messageInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+
+        // Submit on Enter (excluding Shift+Enter)
+        messageInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                document.getElementById('chat-form').dispatchEvent(new Event('submit'));
+            }
+        });
+    }
+
+    // Scroll to bottom helper
+    function scrollToBottom() {
+        const container = document.getElementById('messages-container');
+        if (container) {
+            container.scrollTop = container.scrollHeight;
+        }
+    }
+
+    // Suggestion chip fill helper
+    function fillSuggestion(text) {
+        if (messageInput) {
+            messageInput.value = text;
+            messageInput.dispatchEvent(new Event('input'));
+            messageInput.focus();
+        }
+    }
+
+    // AJAX Form Submission
+    const chatForm = document.getElementById('chat-form');
+    if (chatForm) {
+        chatForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const messageText = messageInput.value.trim();
+            if (!messageText) return;
+            
+            // Clear input and restore height
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+            
+            // Append User Message to UI instantly
+            appendUserMessage(messageText);
+            scrollToBottom();
+            
+            // Show Typing indicator
+            const typingIndicator = document.getElementById('typing-indicator');
+            typingIndicator.classList.remove('hidden');
+            scrollToBottom();
+            
+            // Send request via Fetch API
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            const apiEndpoint = "{% if active_session %}{% url 'chatbot:send_message_api' session_id=active_session.id %}{% endif %}";
+            
+            fetch(apiEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ message: messageText })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response error.');
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Hide Typing Indicator
+                typingIndicator.classList.add('hidden');
+                
+                if (data.status === 'success') {
+                    // Append AI Response
+                    appendAiMessage(data.ai_msg.content, data.ai_msg.timestamp);
+                    
+                    // Dynamic sidebar session title update (if session rename occurs)
+                    const activeSessionTitle = document.getElementById('active-session-title');
+                    if (activeSessionTitle && activeSessionTitle.textContent !== data.session_title) {
+                        activeSessionTitle.textContent = data.session_title;
+                        
+                        // Update in sidebar as well
+                        const activeSidebarTitle = document.querySelector('.bg-brand-50 .session-title-text, .bg-brand-950\\/30 .session-title-text');
+                        if (activeSidebarTitle) {
+                            activeSidebarTitle.textContent = data.session_title;
+                        }
+                    }
+                } else {
+                    appendAiMessage("Sorry, I encountered an error: " + (data.error || "Unknown error"), "Just now");
+                }
+                scrollToBottom();
+            })
+            .catch(error => {
+                typingIndicator.classList.add('hidden');
+                appendAiMessage("I'm sorry, I'm unable to connect to the server right now. Please verify your connection and try again.", "Just now");
+                scrollToBottom();
+                console.error('Fetch error:', error);
+            });
+        });
+    }
+
+    function appendUserMessage(text) {
+        const container = document.getElementById('messages-container');
+        const typingIndicator = document.getElementById('typing-indicator');
+        
+        const userBubble = document.createElement('div');
+        userBubble.className = "flex items-end justify-end space-x-3 max-w-3xl ml-auto";
+        
+        // Escape HTML to prevent injection
+        const escapedText = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        // Convert linebreaks to <br>
+        const formattedText = escapedText.replace(/\n/g, "<br>");
+        
+        const now = new Date();
+        const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        userBubble.innerHTML = `
+            <div class="flex flex-col space-y-1 items-end">
+                <div class="bg-gradient-to-r from-brand-600 to-indigo-600 text-white px-4 py-3 rounded-2xl rounded-br-none shadow-md shadow-brand-500/5 text-sm leading-relaxed max-w-lg break-words">
+                    ${formattedText}
+                </div>
+                <span class="text-[10px] text-slate-400 dark:text-slate-500 px-1">${timeString}</span>
+            </div>
+            <div class="w-8 h-8 rounded-xl bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 font-semibold text-xs flex-shrink-0 shadow-sm mb-5">
+                ${"{{ user.username|slice:':1'|upper }}"}
+            </div>
+        `;
+        
+        container.insertBefore(userBubble, typingIndicator);
+    }
+
+    function appendAiMessage(markdownText, timeString) {
+        const container = document.getElementById('messages-container');
+        const typingIndicator = document.getElementById('typing-indicator');
+        
+        const aiBubble = document.createElement('div');
+        aiBubble.className = "flex items-start space-x-3 max-w-3xl mr-auto";
+        
+        // Parse markdown text using marked.js
+        const renderedHtml = marked.parse(markdownText);
+        
+        aiBubble.innerHTML = `
+            <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-500 flex items-center justify-center shadow-md shadow-brand-500/10 flex-shrink-0">
+                <i data-lucide="bot" class="text-white w-4.5 h-4.5"></i>
+            </div>
+            <div class="flex flex-col space-y-1">
+                <div class="bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 text-slate-800 dark:text-slate-100 px-5 py-4 rounded-2xl rounded-bl-none shadow-sm text-sm leading-relaxed max-w-lg break-words markdown-content">
+                    ${renderedHtml}
+                </div>
+                <span class="text-[10px] text-slate-400 dark:text-slate-500 px-1">${timeString}</span>
+            </div>
+        `;
+        
+        container.insertBefore(aiBubble, typingIndicator);
+        
+        // Re-run Lucide on the newly created DOM elements to show the bot icon
+        lucide.createIcons();
+    }
+</script>
+{% endblock %}
