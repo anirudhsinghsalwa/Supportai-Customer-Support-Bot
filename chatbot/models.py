@@ -39,15 +39,12 @@ class UserProfile(models.Model):
     def __str__(self):
         return f"{self.user.username}'s Profile"
 
-# Signals to automatically create UserProfile when User is created
+# Signal to automatically manage UserProfile lifecycle
 @receiver(post_save, sender=User)
-def create_user_profile(sender, instance, created, **kwargs):
+def save_or_create_user_profile(sender, instance, created, **kwargs):
     if created:
-        UserProfile.objects.create(user=instance)
-
-@receiver(post_save, sender=User)
-def save_user_profile(sender, instance, **kwargs):
-    # Ensure profile exists in case of legacy users or manual creation errors
-    if not hasattr(instance, 'profile'):
-        UserProfile.objects.create(user=instance)
-    instance.profile.save()
+        UserProfile.objects.get_or_create(user=instance)
+    else:
+        # Prevent related object does not exist crash during profile saving
+        profile, _ = UserProfile.objects.get_or_create(user=instance)
+        profile.save()
