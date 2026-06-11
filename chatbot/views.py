@@ -1,64 +1,19 @@
 import json
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import login, logout, authenticate
-from django.contrib.auth.forms import AuthenticationForm
-from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.contrib import messages
 from django.utils import timezone
-from .models import ChatSession, ChatMessage, UserProfile
-from .forms import UserRegistrationForm, UserUpdateForm, ProfileUpdateForm
-from .gemini_service import get_gemini_response
+from .models import ChatSession, ChatMessage
 
-def register_view(request):
-    if request.user.is_authenticated:
-        return redirect('chatbot:chat_home')
-        
-    if request.method == 'POST':
-        form = UserRegistrationForm(request.POST)
-        if form.is_valid():
-            user = form.save()
-            login(request, user)
-            messages.success(request, "Registration successful! Welcome to Customer Support.")
-            return redirect('chatbot:chat_home')
-    else:
-        form = UserRegistrationForm()
-    return render(request, 'chatbot/register.html', {'form': form})
+def ensure_session_key(request):
+    if not request.session.session_key:
+        request.session.create()
+    return request.session.session_key
 
-def login_view(request):
-    if request.user.is_authenticated:
-        return redirect('chatbot:chat_home')
-        
-    if request.method == 'POST':
-        form = AuthenticationForm(request, data=request.POST)
-        if form.is_valid():
-            username = form.cleaned_data.get('username')
-            password = form.cleaned_data.get('password')
-            user = authenticate(username=username, password=password)
-            if user is not None:
-                login(request, user)
-                messages.success(request, f"Welcome back, {username}!")
-                return redirect('chatbot:chat_home')
-    else:
-        form = AuthenticationForm()
-        
-    # Inject classes into authentication form manually for styling consistency
-    for field in form.fields.values():
-        field.widget.attrs.update({
-            'class': 'w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-slate-800 dark:text-slate-100 transition duration-200',
-            'placeholder': field.label
-        })
-    return render(request, 'chatbot/login.html', {'form': form})
-
-def logout_view(request):
-    logout(request)
-    messages.info(request, "You have been logged out.")
-    return redirect('chatbot:login')
-
-@login_required
 def chat_home(request):
-    sessions = ChatSession.objects.filter(user=request.user)
+    session_key = ensure_session_key(request)
+    sessions = ChatSession.objects.filter(session_key=session_key)
     latest_session = sessions.first()
     
     if latest_session:
@@ -67,13 +22,13 @@ def chat_home(request):
     return render(request, 'chatbot/chat.html', {
         'sessions': sessions,
         'active_session': None,
-        'messages': []
+        'chat_messages': []
     })
 
-@login_required
 def chat_session_detail(request, session_id):
-    sessions = ChatSession.objects.filter(user=request.user)
-    active_session = get_object_or_404(ChatSession, id=session_id, user=request.user)
+    session_key = ensure_session_key(request)
+    sessions = ChatSession.objects.filter(session_key=session_key)
+    active_session = get_object_or_404(ChatSession, id=session_id, session_key=session_key)
     chat_messages = active_session.messages.all()
     
     return render(request, 'chatbot/chat.html', {
@@ -82,26 +37,25 @@ def chat_session_detail(request, session_id):
         'chat_messages': chat_messages
     })
 
-@login_required
 def create_session(request):
-    session = ChatSession.objects.create(user=request.user, title="New Conversation")
+    session_key = ensure_session_key(request)
+    session = ChatSession.objects.create(session_key=session_key, title="New Conversation")
     return redirect('chatbot:chat_session_detail', session_id=session.id)
 
-@login_required
 @require_POST
 def delete_session(request, session_id):
-    session = get_object_or_404(ChatSession, id=session_id, user=request.user)
+    session_key = ensure_session_key(request)
+    session = get_object_or_404(ChatSession, id=session_id, session_key=session_key)
     session.delete()
     messages.success(request, "Conversation deleted.")
     return redirect('chatbot:chat_home')
 
-@login_required
 @require_POST
 def send_message_api(request, session_id):
-    session = get_object_or_404(ChatSession, id=session_id, user=request.user)
+    session_key = ensure_session_key(request)
+    session = get_object_or_404(ChatSession, id=session_id, session_key=session_key)
     
     try:
-        # Accept either JSON or standard POST parameters
         if request.content_type == 'application/json':
             data = json.loads(request.body)
             user_message_content = data.get('message', '').strip()
@@ -117,7 +71,6 @@ def send_message_api(request, session_id):
             content=user_message_content
         )
         
-        # If it was the default title, rename the conversation title based on the first message
         if session.title == "New Conversation" and session.messages.filter(sender='user').count() == 1:
             title = user_message_content[:40]
             if len(user_message_content) > 40:
@@ -162,25 +115,3 @@ def send_message_api(request, session_id):
         
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
-
-@login_required
-def profile_view(request):
-    user_profile, created = UserProfile.objects.get_or_create(user=request.user)
-    
-    if request.method == 'POST':
-        user_form = UserUpdateForm(request.POST, instance=request.user)
-        profile_form = ProfileUpdateForm(request.POST, instance=user_profile)
-        
-        if user_form.is_valid() and profile_form.is_valid():
-            user_form.save()
-            profile_form.save()
-            messages.success(request, "Your profile has been updated successfully!")
-            return redirect('chatbot:profile')
-    else:
-        user_form = UserUpdateForm(instance=request.user)
-        profile_form = ProfileUpdateForm(instance=user_profile)
-        
-    return render(request, 'chatbot/profile.html', {
-        'user_form': user_form,
-        'profile_form': profile_form
-    })

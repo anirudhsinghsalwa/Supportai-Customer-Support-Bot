@@ -4,7 +4,8 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 class ChatSession(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_sessions')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name='chat_sessions')
+    session_key = models.CharField(max_length=40, null=True, blank=True)
     title = models.CharField(max_length=255, default='New Conversation')
     created_at = models.DateTimeField(auto_now_add=True)
 
