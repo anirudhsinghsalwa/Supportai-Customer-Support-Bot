@@ -5,3 +5,4 @@ __pycache__/
 db.sqlite3
 .vscode/
 .idea/
+PROJECT_MASTER_GUIDE_FOR_INTERVIEWS.md
