@@ -5,6 +5,7 @@ from django.views.decorators.http import require_POST
 from django.contrib import messages
 from django.utils import timezone
 from .models import ChatSession, ChatMessage
+from .gemini_service import get_gemini_response
 
 def ensure_session_key(request):
     if not request.session.session_key:
